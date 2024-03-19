@@ -1,0 +1,23 @@
+{
+  "extends": "fastify-tsconfig",
+  "compilerOptions": {
+    "sourceMap": true,
+    "outDir": "./dist",
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "noImplicitThis": false,
+    "noUnusedParameters": false,
+    "noImplicitReturns": false,
+    "allowSyntheticDefaultImports": false,
+    "esModuleInterop": false,
+    "emitDecoratorMetadata": false,
+    "experimentalDecorators": false,
+  },
+  "exclude": [
+    "node_modules"
+  ],
+  "include": [
+    "./src/**/*.ts"
+  ]
+}

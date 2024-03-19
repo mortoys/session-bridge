@@ -1,0 +1,358 @@
+<html>
+    <head>
+        <title>登录中</title>    
+        <style>
+            html, body, canvas {
+                margin: 0;
+                padding: 0;
+                overflow-x: hidden;
+                overflow-y: hidden;
+            }
+            canvas {
+                position: absolute;
+                left: 0;
+                top: 0;
+                outline: 1px solid black;
+                /* transform: scale(0.333333333); */
+                /* transform-origin: left top; */
+            }
+            input {
+                position: absolute;
+                z-index: 1000;
+                font-size: 48px;
+                background: none;  
+                outline: none;  
+                border: 0;
+                appearance: none;
+                caret-color: transparent;
+                color: transparent;
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="myCanvas"></canvas>
+    </body>
+<script>
+const host = 'localhost:3006'
+const targetListUrl = `http://${host}/browser/pages`
+
+// 查找内部浏览器打开的页面，得到websocket连接地址
+async function getTargetList() {
+    a = await fetch(targetListUrl)
+    l = await a.json()
+    return l[0].webSocketDebuggerUrl
+}
+
+function webSocket(path) {
+    return new Promise((resolve, reject) => {
+        let ws = new WebSocket(path.replace('localhost:9222', `${host}/browser`))
+        ws.onopen = function() {
+            resolve(ws)
+        }
+        ws.onerror = function(e) {
+            alert(e)
+            reject(e)
+        }
+        ws.onclose = function() {
+            console.log('close')
+        }
+    })
+}
+
+function emitKeyEvent(event, sendMsg) {
+    console.log(event)
+
+    const types = {
+        'keydown': 'keyDown',
+        'keyup': 'keyUp',
+        'keypress':'char'
+    }
+    if (!Object.keys(types).includes(event.type)) return
+    let type = types[event.type]
+
+    const keyboardEvent = event;
+
+    const text = event.type === 'keypress' ? String.fromCharCode(keyboardEvent.charCode) : undefined;
+    const modifiers = (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0)
+
+    const params = {
+        type: type,
+        modifiers: modifiers,
+        text: text,
+        unmodifiedText: text ? text.toLowerCase() : undefined,
+        keyIdentifier: keyboardEvent.keyIdentifier,
+        code: keyboardEvent.code,
+        key: keyboardEvent.key,
+        windowsVirtualKeyCode: keyboardEvent.keyCode,
+        nativeVirtualKeyCode: keyboardEvent.keyCode,
+        autoRepeat: false,
+        isKeypad: false,
+        isSystemKey: false,
+    }
+  
+    sendMsg({
+        "method": "Input.dispatchKeyEvent",
+        "params": params
+    })
+}
+
+let activeTouchOffsetTop = 0
+function emitTouchFromMouseEvent(mouseEvent, sendMsg, offsetTop, zoom) {
+    const types = {mousedown: "mousePressed", mouseup: "mouseReleased", mousemove: "mouseMoved", mousewheel: "mouseWheel"}
+    const type = types[mouseEvent.type]
+    const buttons = ['none', 'left', 'middle', 'right']
+    const button = buttons[mouseEvent.which]
+    const eventType = mouseEvent.type;
+    if (!(eventType in types)) {
+      return;
+    }
+    if (!(mouseEvent.which in buttons)) {
+      return;
+    }
+    if (eventType !== 'mousewheel' && buttons[mouseEvent.which] === 'none') {
+      return;
+    }
+
+    if (eventType === 'mousedown' || activeTouchOffsetTop === null) {
+      activeTouchOffsetTop = offsetTop;
+    }
+    const x = Math.round(mouseEvent.offsetX / zoom);
+    let y = Math.round(mouseEvent.offsetY / zoom);
+    y = Math.round(y - activeTouchOffsetTop);
+    // console.log('type', mouseEvent.type, type)
+    const params = {
+        "type": type,
+        "x": x,
+        "y": y,
+        "button": button,
+        "timestamp": Date.now(),
+        "modifiers": 0,
+        "clickCount": 0,
+    }
+    if (type === 'mousePressed' || type === 'mouseReleased') {
+        params.clickCount = 1;
+    }
+    if (type === 'mouseReleased') {
+      activeTouchOffsetTop = null;
+    }
+    if (type === 'mouseWheel') {
+        const wheelEvent = mouseEvent;
+        params.deltaX = wheelEvent.deltaX / zoom;
+        params.deltaY = -wheelEvent.deltaY / zoom;
+    }
+    console.log(params)
+    sendMsg({
+        "method": "Input.emulateTouchFromMouseEvent",
+        "params": params
+    })
+}
+
+function emitTouchEvent(touchEvent, sendMsg, offsetTop, zoom) {
+    const types = {touchstart: "touchStart", touchend: "touchEnd", touchmove: "touchMove", touchcancel: "touchCancel"}
+    const type = types[touchEvent.type]
+    console.log(touchEvent)
+    sendMsg({
+        "method": "Input.dispatchTouchEvent",
+        "params": {
+            "type": type,
+            "touchPoints": Array.from(touchEvent.changedTouches).map(touch => {
+                const x = Math.round(touch.clientX / zoom);
+                let y = Math.round(touch.clientY / zoom);
+                y = Math.round(y - offsetTop);
+                return {
+                    "x": x,
+                    "y": y,
+                    "radiusX": 1,
+                    "radiusY": 1,
+                    "rotationAngle": 0,
+                    "force": 1,
+                    "id": touch.identifier
+                }
+            }),
+            "modifiers": 0,
+            "timestamp": Date.now()
+        }
+    })
+}
+
+async function init() {
+    let i = 3
+    const canvas = document.getElementById('myCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const img = new Image();
+
+    let pageScaleFactor = 1;
+    let screenOffsetTop = 0;
+    let scrollOffsetX = 0;
+    let scrollOffsetY = 0;
+    let activeTouchOffsetTop = null;
+    let dpr = window.devicePixelRatio || 1;  // 获取逻辑像素比例
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+
+    canvas.width = w;
+    canvas.height = h;
+
+    let params = new URLSearchParams(location.search);
+    const isMobile = params.get('ismobile') === 'true'
+
+    async function initWebSocket() {
+        const wsPath = await getTargetList()
+        const ws = await webSocket(wsPath)
+
+        ws.send(JSON.stringify({
+            "id": i++,
+            "method": "Page.startScreencast",
+            "params": {
+                "format": "jpeg", // jpeg, png
+                "quality": 100, // 0-100 图像质量
+                // "everyNthFrame": 2 // 每隔几帧截图
+            }
+        }))
+
+        ws.send(JSON.stringify({
+            "id": i++,
+            "method": "Console.enable",
+        }))
+
+        ws.onmessage = function(e) {
+            // console.log(e)
+            const data = JSON.parse(e.data)
+
+            /**
+             * 这里是为了获取输入框的位置，然后原样在canvas上绘制一个input
+             * 这个是为了解决在手机上输入的问题
+             */
+            if (data.method === 'Console.messageAdded') {
+                const text = data.params.message.text
+                console.log(text)
+                if (text.startsWith('FIND_INPUT_ELEMENT: ')) {
+                    const json = JSON.parse(text.replace('FIND_INPUT_ELEMENT: ', ''))
+                    const inputs = document.querySelectorAll('input')
+                    for(let i = json.length;i < inputs.length;i++) {
+                        inputs[i].remove()
+                        console.log('REMOVE INPUT')
+                    }
+                    json.forEach((item, i) => {
+                        function place(ele) {
+                            ele.type = item.type
+                            ele.style.left = item.x * dpr
+                            ele.style.top = item.y * dpr
+                            ele.style.width = item.width * dpr
+                            ele.style.height = item.height * dpr
+                        }
+                        // console.log(item)
+                        const ele = document.querySelector(`#input${i}`)
+                        if (ele) {
+                            place(ele)
+                        }
+                        else {
+                            const input = document.createElement('input')
+                            input.id = `input${i}`
+                            place(input)
+                            // !isMobile && 
+                            input.addEventListener('mousedown', function(e) {
+                                canvas.dispatchEvent(new MouseEvent('mousedown', e));
+                                input.focus();
+                            }, false);
+                            // isMobile && input.addEventListener('touchend', function(e) {
+                            //     canvas.dispatchEvent(new TouchEvent('touchend', e));
+                            //     input.focus();
+                            // }, false);
+                            // isMobile && input.addEventListener('touchstart', function(e) {
+                            //     canvas.dispatchEvent(new TouchEvent('touchstart', e));
+                            //     input.focus();
+                            // }, false);
+                            document.body.appendChild(input)
+                        }
+                    })
+                    // console.log(input)
+                }
+            }
+
+            // 这里是为了获取截图，然后在canvas上绘制 
+            if (data.method === 'Page.screencastFrame') {
+                const base64 = data.params.data
+                const metadata = data.params.metadata
+
+                pageScaleFactor = metadata.pageScaleFactor;
+                screenOffsetTop = metadata.offsetTop;
+                scrollOffsetX = metadata.scrollOffsetX;
+                scrollOffsetY = metadata.scrollOffsetY;
+                img.src = 'data:image/jpeg;base64,' + base64;
+
+                img.onload = function () {
+                    // ctx.drawImage(img, 0, 0);
+                    ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, canvas.width, canvas.height);
+                    // console.log(img.width, img.height);
+                    // console.log(canvas.width, canvas.height);
+                    // console.log(w, h);
+                };
+
+                // 截图消息应答
+                ws.send(JSON.stringify({
+                    "id": i++,
+                    "method": "Page.screencastFrameAck",
+                    "params": {
+                        "sessionId": data.params.sessionId
+                    }
+                }))
+            }
+        }
+
+        return async function sendMsg(msg) {
+            return ws.send(JSON.stringify({
+                "id": i++,
+                ... msg
+            }))
+        }
+    }
+
+    const sendMsg = await initWebSocket()
+
+    function binding() {
+        function handleKeyEvent(event) {
+            emitKeyEvent(event, sendMsg)
+        }
+        function handleMouseEvent(event) {
+            emitTouchFromMouseEvent(event, sendMsg, screenOffsetTop, dpr)
+            event.preventDefault()
+            event.stopPropagation()
+        }
+        function handleTouchEvent(event) {
+            event.preventDefault()
+            event.stopPropagation()
+            emitTouchEvent(event, sendMsg, screenOffsetTop, dpr)
+        }
+
+        canvas.addEventListener('mousedown', handleMouseEvent, false);
+        canvas.addEventListener('mouseup', handleMouseEvent, false);
+        canvas.addEventListener('mousemove', handleMouseEvent, false);
+        canvas.addEventListener('mousewheel', handleMouseEvent, false);
+        canvas.addEventListener('click', handleMouseEvent, false);
+
+        canvas.addEventListener('touchstart', handleTouchEvent, false);
+        canvas.addEventListener('touchmove', handleTouchEvent, false);
+        canvas.addEventListener('touchend', handleTouchEvent, false);
+        canvas.addEventListener('touchcancel', handleTouchEvent, false);
+    
+        window.addEventListener('keydown', handleKeyEvent, false);
+        window.addEventListener('keyup', handleKeyEvent, false);
+        window.addEventListener('keypress', handleKeyEvent, false);
+        // canvasElement.addEventListener('blur', handleBlurEvent, false);
+
+        function sendBeforeClose() {
+            sendMsg({ "method": "Page.close" })
+        }
+
+        window.addEventListener('beforeunload', sendBeforeClose);
+        window.onbeforeunload = sendBeforeClose
+    }
+
+    binding()
+}
+
+init()
+</script>
+</html>

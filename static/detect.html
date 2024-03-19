@@ -1,0 +1,35 @@
+<html>
+    <head>
+        <title>跳转中</title>    
+    </head>
+    <body>
+        请稍等...
+    </body>
+<script>
+const dpr = window.devicePixelRatio || 1;  // 获取逻辑像素比例
+const w = window.innerWidth;
+const h = window.innerHeight;
+const { downlink, effectiveType, rtt, saveData } = navigator.connection
+const language = navigator.language
+const ismobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+
+let params = new URLSearchParams(location.search);
+let [userid, domain, login_url] = [params.get('userid'), params.get('domain'), params.get('login_url')]
+
+location.href = location.href.replace(/\/login\/(.*)/, '/login/cast?') + new URLSearchParams({
+    dpr,
+    w,
+    h,
+    downlink, // 返回以 Mb/s 为单位的有效带宽
+    effectiveType, // 'slow-2g', '2g', '3g', or '4g'
+    rtt, // RTT 往返时延
+    saveData, // 用户设备上设置了减少数据使用
+    language,
+    ismobile,
+
+    userid,
+    domain,
+    login_url
+}).toString()
+
+</script>

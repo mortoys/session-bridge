@@ -1,0 +1,39 @@
+{
+  "name": "anyask-browser",
+  "version": "1.0.0",
+  "description": "plugin api which need browser",
+  "scripts": {
+    "watch": "tsc --watch --preserveWatchOutput --pretty",
+    "dev": "cross-env NODE_ENV=development nodemon",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "build": "rimraf dist && tsc",
+    "start": "node dist/index.js"
+  },
+  "author": "Morty Lu <morty@docean.ai>",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify-resty/core": "^0.3.0",
+    "@fastify-resty/typeorm": "^0.3.0",
+    "@fastify/postgres": "^5.2.0",
+    "@fastify/websocket": "^8.0.0",
+    "axios": "^1.4.0",
+    "dotenv": "^16.0.3",
+    "fastify": "^4.17.0",
+    "pg": "^8.10.0",
+    "playwright": "^1.33.0",
+    "ws": "^8.13.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.33.0",
+    "@types/node": "latest",
+    "@types/ws": "^8.5.4",
+    "cross-env": "^7.0.3",
+    "fastify-tsconfig": "^1.0.1",
+    "nodemon": "^2.0.22",
+    "playwright-start": "^1.1.0",
+    "prettier": "^2.8.8",
+    "rimraf": "^5.0.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.0.4"
+  }
+}
